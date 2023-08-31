@@ -11,14 +11,19 @@ const getTypes = async (req, res) => {
     const typesFromAPI = response.data.results;
 
     // Guardar los tipos en la base de datos (solo si aún no están guardados)
-    await Promise.all(
-      typesFromAPI.map(async (type) => {
-        await Type.findOrCreate({
-          where: { name: type.name },
-          defaults: { name: type.name },
-        });
-      })
-    );
+   // Guardar los tipos en la base de datos (solo si aún no están guardados)
+await Promise.all(
+  typesFromAPI.map(async (type) => {
+    // Verificar si el tipo ya existe en la base de datos
+    const existingType = await Type.findOne({ where: { name: type.name } });
+
+    if (!existingType) {
+      await Type.create({
+        name: type.name,
+      });
+    }
+  })
+);
 
     // Obtener todos los tipos de la base de datos
     const allTypes = await Type.findAll();
@@ -27,10 +32,6 @@ const getTypes = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: 'Hubo un error al obtener los tipos de Pokémon', error: error.message });
   }
-};
-
-module.exports = {
-  getTypes,
 };
 
 

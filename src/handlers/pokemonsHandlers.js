@@ -19,17 +19,47 @@ const getAllPokemons = async (req, res) => {
       const hp = poke.stats.find((obj) => obj.stat.name === 'hp');
 
       // Get types for the Pokémon
-      const typesResponse = await axios.get(poke.types[0].type.url);
-      const spanishTypeName = typesResponse.data.names.find((type) => type.language.name === 'es').name;
+      const types = [];
+      for (const typeData of poke.types) {
+        const typeResponse = await axios.get(typeData.type.url);
+        const typeName = typeResponse.data.names.find((type) => type.language.name === 'en').name;
+
+        // Buscar o crear el tipo en la base de datos
+        const [typeInstance, created] = await Type.findOrCreate({
+          where: { name: typeName },
+          defaults: { name: typeName },
+        });
+
+        types.push({
+          id: typeInstance.id,
+          name: typeName,
+        });
+      }
+
+      // Crear el nuevo Pokémon en la tabla de Pokemons si no existe
+      const [newPokemon, isNewPokemon] = await Pokemon.findOrCreate({
+        where: { name: poke.name },
+        defaults: {
+          name: poke.name,
+          image: poke.sprites.front_default,
+          health: hp.base_stat,
+          attack: attack.base_stat,
+          defense: defense.base_stat,
+        },
+      });
+
+      // Asociar los tipos al Pokémon
+      const typesInstances = await Type.findAll({ where: { name: types.map(type => type.name) } });
+      await newPokemon.setTypes(typesInstances);
 
       return {
-        id: poke.id,
-        name: poke.name,
-        image: poke.sprites.front_default,
-        health: hp.base_stat,
-        attack: attack.base_stat,
-        defense: defense.base_stat,
-        type: spanishTypeName, // Add the Spanish type name to the result
+        id: newPokemon.id,
+        name: newPokemon.name,
+        image: newPokemon.image,
+        health: newPokemon.health,
+        attack: newPokemon.attack,
+        defense: newPokemon.defense,
+        types: types, // Include types in the result
       };
     });
 
