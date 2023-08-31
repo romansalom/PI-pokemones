@@ -8,7 +8,7 @@ const {getAllTypes} = require("./src/handlers/Typeshandler.js")
 
 
 // Syncing all the models at once.
-conn.sync({ force: false }).then(() => {
+conn.sync({ force: true }).then(() => {
   server.listen(3001, async () => {
     console.log('%s listening at 3001, estoy escuchando en el puerto 3001');
 

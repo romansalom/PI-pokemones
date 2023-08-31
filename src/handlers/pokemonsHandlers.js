@@ -50,6 +50,8 @@ const getPokemonsById = async(req,res)=>
        
         if (!UUID(idPokemon)) {
             // Si encontramos el Pokémon en la base de datos, lo devolvemos
+            const pokemonTypes = await dbPokemon.getTypes();
+
             const dbPokemon = await Pokemon.findOne({ where: { id: idPokemon } });
 
             res.status(200).json(dbPokemon);
@@ -57,6 +59,8 @@ const getPokemonsById = async(req,res)=>
             // Si no encontramos el Pokémon en la base de datos, buscamos en la PokeAPI
             const pokeApiResponse = await axios.get(`${URL}/${idPokemon}`);
             const poke = pokeApiResponse.data;
+            const typeResponse = await axios.get(poke.types[0].type.url);
+      const spanisTypeName = typeResponse.data.names.find((types) => types.language.name === 'es').name;
 
             const attack = poke.stats.find(obj => obj.stat.name === 'attack');
             const defense = poke.stats.find(obj => obj.stat.name === 'defense');
@@ -68,6 +72,7 @@ const getPokemonsById = async(req,res)=>
                 health: hp.base_stat,
                 attack: attack.base_stat,
                 defense: defense.base_stat,
+                types: spanisTypeName
             });
 
             res.status(200).json(newPokemon);
@@ -135,6 +140,7 @@ const getPokemonsByName = async(req,res)=>{
       health: health,
       attack: attack,
       defense: defense,
+      types: ''
     });
 
     // Asociar los tipos al Pokémon
