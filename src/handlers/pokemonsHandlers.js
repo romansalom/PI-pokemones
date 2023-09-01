@@ -4,72 +4,136 @@ const URL ='https://pokeapi.co/api/v2/pokemon'
 const {Pokemon , Type } = require("../db");
 const { UUID } = require('sequelize');
 
+const { Op } = require('sequelize');
 
 const getAllPokemons = async (req, res) => {
   try {
     const response = await axios(`${URL}?limit=50`);
-    const allPokemons = response.data;
+    const allPokemonsAPI = response.data.results;
 
-    const pokemonPromises = allPokemons.results.map(async (pokemon) => {
-      const response = await axios(`${URL}/${pokemon.name}`);
-      const poke = response.data;
+    // Obtener todos los tipos de la base de datos
+    const allTypes = await Type.findAll();
 
-      const attack = poke.stats.find((obj) => obj.stat.name === 'attack');
-      const defense = poke.stats.find((obj) => obj.stat.name === 'defense');
-      const hp = poke.stats.find((obj) => obj.stat.name === 'hp');
+    const pokemonPromises = Promise.all(
+      allPokemonsAPI.map(async (pokemonAPI) => {
+        const pokemonNameAPI = pokemonAPI.name.toLowerCase();
 
-      // Get types for the Pokémon
-      const types = [];
-      for (const typeData of poke.types) {
-        const typeResponse = await axios.get(typeData.type.url);
-        const typeName = typeResponse.data.names.find((type) => type.language.name === 'en').name;
-
-        // Buscar o crear el tipo en la base de datos
-        const [typeInstance, created] = await Type.findOrCreate({
-          where: { name: typeName },
-          defaults: { name: typeName },
+        // Buscar el Pokémon en la base de datos por nombre (insensible a mayúsculas y minúsculas)
+        const dbPokemon = await Pokemon.findOne({
+          where: {
+            name: {
+              [Op.iLike]: pokemonNameAPI,
+            },
+          },
+          include: Type,
         });
 
-        types.push({
-          id: typeInstance.id,
-          name: typeName,
-        });
-      }
+        if (dbPokemon) {
+          // Si el Pokémon está en la base de datos, devuélvelo con sus tipos
+          return {
+            id: dbPokemon.id,
+            name: dbPokemon.name,
+            image: dbPokemon.image,
+            health: dbPokemon.health,
+            attack: dbPokemon.attack,
+            defense: dbPokemon.defense,
+            types: dbPokemon.Types.map((type) => ({
+              id: type.id,
+              name: type.name,
+            })),
+          };
+        } else {
+          // Si no está en la base de datos, obtén los datos de la API y crea el nuevo Pokémon
+          const apiResponse = await axios(`${URL}/${pokemonAPI.name}`);
+          const poke = apiResponse.data;
 
-      // Crear el nuevo Pokémon en la tabla de Pokemons si no existe
-      const [newPokemon, isNewPokemon] = await Pokemon.findOrCreate({
-        where: { name: poke.name },
-        defaults: {
-          name: poke.name,
-          image: poke.sprites.front_default,
-          health: hp.base_stat,
-          attack: attack.base_stat,
-          defense: defense.base_stat,
-        },
-      });
+          const attack = poke.stats.find((obj) => obj.stat.name === 'attack');
+          const defense = poke.stats.find((obj) => obj.stat.name === 'defense');
+          const hp = poke.stats.find((obj) => obj.stat.name === 'hp');
 
-      // Asociar los tipos al Pokémon
-      const typesInstances = await Type.findAll({ where: { name: types.map(type => type.name) } });
-      await newPokemon.setTypes(typesInstances);
+          // Get types for the Pokémon
+          const types = [];
+          for (const typeData of poke.types) {
+            const typeResponse = await axios.get(typeData.type.url);
+            const typeName = typeResponse.data.names.find((type) => type.language.name === 'en').name;
 
-      return {
-        id: newPokemon.id,
-        name: newPokemon.name,
-        image: newPokemon.image,
-        health: newPokemon.health,
-        attack: newPokemon.attack,
-        defense: newPokemon.defense,
-        types: types, // Include types in the result
-      };
+            // Buscar o crear el tipo en la base de datos (insensible a mayúsculas y minúsculas)
+            const [typeInstance, created] = await Type.findOrCreate({
+              where: {
+                name: {
+                  [Op.iLike]: typeName,
+                },
+              },
+              defaults: { name: typeName },
+            });
+
+            types.push(typeInstance);
+          }
+
+          // Crear el nuevo Pokémon en la tabla de Pokemons
+          const newPokemon = await Pokemon.create({
+            name: pokemonNameAPI,
+            image: poke.sprites.front_default,
+            health: hp.base_stat,
+            attack: attack.base_stat,
+            defense: defense.base_stat,
+          });
+
+          // Asociar los tipos al Pokémon
+          await newPokemon.setTypes(types);
+
+          return {
+            id: newPokemon.id,
+            name: newPokemon.name,
+            image: newPokemon.image,
+            health: newPokemon.health,
+            attack: newPokemon.attack,
+            defense: newPokemon.defense,
+            types: types.map((type) => ({
+              id: type.id,
+              name: type.name,
+            })),
+          };
+        }
+      })
+    );
+
+    const pokemons = await pokemonPromises;
+
+    // Buscar los Pokémon en la base de datos y combinarlos con los obtenidos de la API
+    const dbPokemons = await Pokemon.findAll({
+      include: Type,
     });
 
-    const pokemons = await Promise.all(pokemonPromises);
+    dbPokemons.forEach((dbPokemon) => {
+      const isDuplicate = pokemons.some((pokemon) => pokemon.id === dbPokemon.id);
+      if (!isDuplicate) {
+        // Agregar Pokémon de la base de datos que no estén en la lista
+        pokemons.push({
+          id: dbPokemon.id,
+          name: dbPokemon.name,
+          image: dbPokemon.image,
+          health: dbPokemon.health,
+          attack: dbPokemon.attack,
+          defense: dbPokemon.defense,
+          types: dbPokemon.Types.map((type) => ({
+            id: type.id,
+            name: type.name,
+          })),
+        });
+      }
+    });
 
     res.status(200).json(pokemons);
   } catch (error) {
-    res.status(500).json({ message: "Hubo un error al obtener a los personajes", error: error.message });
+    res.status(500).json({ message: "Hubo un error al obtener a los Pokémon", error: error.message });
   }
 };
+
+
+
+
+
 
 
 const getPokemonsById = async(req,res)=>
@@ -113,47 +177,46 @@ const getPokemonsById = async(req,res)=>
 }
 
 
-
 const getPokemonsByName = async(req,res)=>{ 
-    const name = req.query.name;
+  const name = req.query.name;
 
-  // Convertir el nombre a minúsculas para comparación insensible a mayúsculas
-  const lowercaseName = name.toLowerCase();
+// Convertir el nombre a minúsculas para comparación insensible a mayúsculas
+const lowercaseName = name.toLowerCase();
 
-  try {
-    // Buscar el pokémon en la API
-    const apiPokemon = await Pokemon.search(lowercaseName);
+try {
+  // Buscar el pokémon en la API
+  const apiPokemon = await Pokemon.search(lowercaseName);
 
-    // Buscar el pokémon en la base de datos
-    const dbPokemon = await Pokemon.findAll({
-      where: {
-        name: sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), lowercaseName)
-      }
-    });
-
-    // Combinar los resultados
-    const pokemons = apiPokemon.concat(dbPokemon);
-
-    // Filtrar los resultados que no existen
-    const existingIds = new Set();
-    const uniquePokemons = pokemons.filter((pokemon) => {
-      if (!existingIds.has(pokemon.id)) {
-        existingIds.add(pokemon.id);
-        return true;
-      }
-      return false;
-    });
-
-    // Si no hay resultados, mostrar un mensaje de error
-    if (uniquePokemons.length === 0) {
-      res.status(404).send("No se encontró ningún pokémon con ese nombre.");
-    } else {
-      res.status(200).json(uniquePokemons);
+  // Buscar el pokémon en la base de datos
+  const dbPokemon = await Pokemon.findAll({
+    where: {
+      name: sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), lowercaseName)
     }
-  } catch (error) {
-    // Manejar el error
-    res.status(500).send("Error al buscar el pokémon: " + error.message);
+  });
+
+  // Combinar los resultados
+  const pokemons = apiPokemon.concat(dbPokemon);
+
+  // Filtrar los resultados que no existen
+  const existingIds = new Set();
+  const uniquePokemons = pokemons.filter((pokemon) => {
+    if (!existingIds.has(pokemon.id)) {
+      existingIds.add(pokemon.id);
+      return true;
+    }
+    return false;
+  });
+
+  // Si no hay resultados, mostrar un mensaje de error
+  if (uniquePokemons.length === 0) {
+    res.status(404).send("No se encontró ningún pokémon con ese nombre.");
+  } else {
+    res.status(200).json(uniquePokemons);
   }
+} catch (error) {
+  // Manejar el error
+  res.status(500).send("Error al buscar el pokémon: " + error.message);
+}
 }
 
 
