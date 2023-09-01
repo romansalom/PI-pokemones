@@ -158,10 +158,22 @@ const getPokemonsByName = async(req,res)=>{
 
 
  // Asegúrate de importar tus modelos correctamente
-
  const createPokemon = async (req, res) => {
   try {
     const { name, image, health, attack, defense, typeIds } = req.body;
+
+    // Verificar si typeIds es un arreglo válido de números enteros
+    if (!Array.isArray(typeIds) || typeIds.some(id => typeof id !== 'number' || !Number.isInteger(id))) {
+      return res.status(400).json({ message: 'Los typeIds deben ser un arreglo válido de números enteros.' });
+    }
+
+    // Verificar si los typeIds son válidos (existentes en la base de datos)
+    const validTypeIds = await Type.findAll({ where: { id: typeIds } });
+
+    // Verificar si todos los typeIds proporcionados son válidos
+    if (validTypeIds.length !== typeIds.length) {
+      return res.status(400).json({ message: 'Alguno de los typeIds proporcionados no es válido.' });
+    }
 
     // Crear el nuevo Pokémon en la tabla de Pokemons
     const newPokemon = await Pokemon.create({
@@ -170,14 +182,10 @@ const getPokemonsByName = async(req,res)=>{
       health: health,
       attack: attack,
       defense: defense,
-      types: ''
     });
 
-    // Asociar los tipos al Pokémon
-    if (Array.isArray(typeIds)) {
-      const types = await Type.findAll({ where: { id: typeIds } });
-      await newPokemon.setTypes(types);
-    }
+    // Asignar los tipos al Pokémon
+    await newPokemon.setTypes(validTypeIds);
 
     res.status(201).json({ message: 'Pokémon creado exitosamente', pokemon: newPokemon });
   } catch (error) {
