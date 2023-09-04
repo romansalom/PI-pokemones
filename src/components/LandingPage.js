@@ -11,7 +11,7 @@ const LandingPage = () => {
       <div className="landing-content">
         <h1>Bienvenido a nuestra aplicación Pokémon</h1>
         <p>¡Encuentra y explora el mundo Pokémon!</p>
-        <Link to="/">Ingresar</Link>
+        <Link to="/home">Ingresar</Link>
       </div>
     </div>
   );
